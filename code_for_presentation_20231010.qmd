@@ -1,0 +1,613 @@
+---
+title: "Quarto Document for Experimental Design and Statistical Issues, 2023/10/10"
+format:
+  html:
+    code-fold: true
+    code-overflow: wrap
+editor: visual
+---
+
+
+# Necessary libraries
+
+```{r}
+#| label: libraries
+#|echo: fenced
+
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(dslabs)
+
+```
+
+
+# Chick Feed
+
+Some simple visualization of chick weights.
+
+"An experiment was conducted to measure and compare the effectiveness of various feed supplements on the growth rate of chickens."
+
+```{r}
+#| label: ggplot
+#| message: false
+data("chickwts")
+ggplot(data=chickwts,
+       aes(x=feed,y=weight))+
+  geom_boxplot()
+
+```
+
+If want to have a breakdown of group size.
+
+```{r}
+#| label: group size
+#| message: false
+chickwts %>% 
+  count(feed)
+
+```
+
+If we want to know the mean and median by feed group
+
+```{r}
+#| label: Mean_median_group
+#| message: false
+chickwts %>% 
+  group_by(feed) %>% 
+  summarize(mean_weight=mean(weight),
+            Median_weight=median(weight)) %>% 
+  arrange(mean_weight)
+
+```
+
+"Newly hatched chicks were randomly allocated into six groups, and each group was given a different feed supplement. Their weights in grams after six weeks are given along with feed types."
+
+# Randomization example
+
+```{r}
+#| label: rando example
+#| echo: fenced
+
+data("mice_weigths")
+
+head(mice_weights)
+
+dim(mice_weights)
+
+table(mice_weights$sex)
+summary(mice_weights)
+
+
+male_chow<-mice_weights %>% 
+  filter(sex=="M" & diet=="chow") %>% 
+  arrange(body_weight)
+
+
+```
+
+Now let us grab every 8th mouse.
+
+```{r}
+#| label: grab sample
+#| echo: fenced
+
+male_chow_subsample<-male_chow[seq(1,nrow(male_chow),by=8),]
+
+
+#--- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+# male_chow_subsample
+#--- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ---
+
+male_chow_subsample<-male_chow_subsample %>% 
+  select(body_weight,litter) %>% 
+  mutate(ID=1:n())
+dim(male_chow_subsample)
+head(male_chow_subsample)
+```
+
+And now let's randomly assign treatment
+
+```{r}
+#| label: Assign treatment
+#| echo: fenced
+set.seed(5159)
+
+male_chow_subsample$random_number<-runif(nrow(male_chow_subsample))
+male_chow_subsample_w_trt<-male_chow_subsample %>% 
+  arrange(random_number) %>% 
+  mutate(Treatment=rep(LETTERS[1:5],each=5))
+
+male_chow_subsample_w_trt %>% 
+  select(ID,Treatment) %>% 
+   head()
+
+```
+
+Let's say however that we wanted to block by weight. How would we do that?
+
+```{r}
+#| label: block
+#| echo: fenced
+
+set.seed(4991)
+male_chow_subsample_block_treat<-male_chow_subsample %>% 
+  arrange(body_weight) %>% 
+  mutate(Block=rep(1:5,each=5)) %>% 
+  mutate(random_number=runif(n())) %>% 
+  group_by(Block) %>% 
+  arrange(random_number) %>% 
+  mutate(Treatment=LETTERS[1:5])
+
+male_chow_subsample_block_treat %>% 
+  group_by(Treatment) %>% 
+  summarize(Median_weight=median(body_weight),
+            Mean_weight=mean(body_weight),
+            sd_weight=sd(body_weight))
+
+table(male_chow_subsample_block_treat$Treatment,male_chow_subsample_block_treat$Block)
+
+```
+
+And if wanted to visualize what it looked like
+
+```{r}
+#| label: visualize randoblock
+#| echo: fenced
+
+male_chow_subsample_block_treat %>% 
+  ggplot(aes(x=Treatment,y=body_weight))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_point()+
+  ggtitle("Figure: Example of Randomized Complete Block Design")
+
+
+
+```
+
+# Research Hypothesis Example
+
+```{r}
+#| label: Testing
+#| echo: fenced
+
+
+data_mouse<-read.delim(
+  text="Mouse	Treatment	IgA
+1	A	507.6520516
+2	A	79.29392926
+3	A	82.82817066
+4	A	8.538348839
+5	A	172.2232327
+6	A	15.44883441
+7	A	45.76170108
+8	A	0.954565221
+9	A	12.52334993
+10	A	5.655094385
+11	B	0.061092795
+12	B	21.63801371
+13	B	0.298935296
+14	B	6.303411351
+15	B	256.1005829
+16	B	0.607723842
+17	B	0.220630945
+18	B	0.502681933
+19	B	1.10585301
+20	B	3.431097596"
+)
+
+data_mouse %>% 
+  ggplot(aes(x=Treatment,y=IgA,col=Treatment))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_point()+
+  scale_y_log10()+
+  ggtitle("Figure: Simulated Mice IgA data")+
+  theme(legend.position = "none")
+
+
+```
+
+Now let's test. Will perform a t-test
+
+```{r}
+#| label: testit
+#| echo: fenced
+
+t.test(log10(IgA)~Treatment,data=data_mouse)
+
+```
+
+# Type I Error
+
+```{r}
+#| label: Type1example
+#| echo: fenced
+
+set.seed(4145)
+
+number_sims<-10000
+
+number_mice<-100
+
+our_results<-vector(length=number_sims)
+
+our_treatment<-rep(c("A","B"),each=50)
+
+for(j in 1:number_sims){
+  simulate_treatment<-our_treatment[order(runif(n=number_mice))]
+  
+  simulate_biomarker<-rnorm(n=number_mice,mean=0,sd=1)
+  
+  simulate_test<- t.test(simulate_biomarker~simulate_treatment)
+  
+  our_results[j]<-simulate_test$p.value
+  
+}
+
+
+```
+
+Let's look at the distribution of the resulting pvalues
+
+```{r}
+#| label: distribut
+#| echo:fenced
+#| fig-height: 8
+#| fig-width: 8
+
+hist(our_results,main = "Simulated Pvalues",xlab="pvalues")
+
+tibble(pvalue=our_results) %>% 
+  ggplot(aes(x=pvalue))+
+  geom_histogram(color="black", fill="white",bins = 25,binwidth=0.01)+
+  theme_bw()+
+  ggtitle("Figure: Distribution of simulated pvalue")+
+  geom_vline(xintercept=0.05,col="red",linewidth=2)+
+  annotate("text",label=sum(our_results<=0.05),x=0,y=150)+
+  annotate("text",label=mean(our_results<=0.05),x=0,y=125)
+```
+
+And how many/proportion of these are less than 0.05?
+
+# Power
+
+```{r}
+#| label: power example
+#| echo: fenced
+
+
+set.seed(4142)
+
+number_sims<-10000
+
+number_mice<-100
+
+our_results_power<-vector(length=number_sims)
+
+our_treatment<-rep(c("A","B"),each=50)
+
+for(j in 1:number_sims){
+  simulate_treatment<-our_treatment[order(runif(n=number_mice))]
+  
+  the_means<-case_when(simulate_treatment=="A"~0,
+                       simulate_treatment=="B"~0.57)
+  
+  simulate_biomarker<-rnorm(n=number_mice,mean=the_means,sd=1)
+  
+  
+  simulate_test<- t.test(simulate_biomarker~simulate_treatment)
+  
+  our_results_power[j]<-simulate_test$p.value
+  
+}
+
+
+
+```
+
+And how did that do
+
+```{r}
+#| label: power distrib
+#| echo:fenced
+
+hist(our_results_power,main = "Simulated Pvalues",xlab="pvalues")
+
+tibble(pvalue=our_results_power) %>% 
+  ggplot(aes(x=pvalue))+
+  geom_histogram(color="black",
+                 fill="white",
+                 bins = 25,
+                 binwidth=0.01)+
+  theme_bw()+
+  ggtitle("Figure: Distribution of simulated pvalue for power")+
+  geom_vline(xintercept=0.05,
+             col="red",
+             linewidth=2)+
+  annotate("text",
+           label=sum(our_results_power<=0.05),
+           x=0.25,y=1000)+
+  annotate("text",
+           label=mean(our_results_power<=0.05),
+           x=0.25,y=500)
+
+
+
+
+```
+
+
+# Multiple testing example
+
+Let's generate some simulated data and visualize it
+
+```{r, fig.height=8,fig.width=8}
+#| label: multi_test_example
+#| echo: fenced
+#| fig-width: 8
+#| fig-height: 8
+
+set.seed(4955)
+
+num_cytos<-20
+num_sample<-60
+
+simulated_cytokine<-replicate(n = num_cytos,
+                              expr=rnorm(n=num_sample))
+
+
+
+simulate_treatment<-rep(c("A","B"),each=num_sample/2)[order(runif(n=num_sample))]
+
+
+
+tibble(as.data.frame(simulated_cytokine)) %>% 
+  mutate(Treatment=simulate_treatment) %>% 
+  pivot_longer(cols=c(-Treatment),
+               names_to = "Cytokine",
+               values_to = "biomarker value") %>% 
+  mutate(Cytokine=fct_reorder(Cytokine,parse_number(Cytokine))) %>% 
+  ggplot(aes(x=Treatment,y=`biomarker value`))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_point(position=position_jitter(0,seed=1))+
+  facet_wrap(~Cytokine,ncol=4)
+
+```
+
+Now let's test
+
+```{r}
+
+
+our_pvalues_multitest<-vector(length=num_cytos)
+
+for(j in 1:num_cytos){
+  
+  our_test<-wilcox.test(simulated_cytokine[,j]~simulate_treatment)
+  
+  our_pvalues_multitest[j]<-our_test$p.value
+}
+
+
+
+
+```
+
+Let's look at a table of our p-values
+
+```{r}
+#| label: Table of pvalues
+#| echo: fenced
+
+tibble(Variable=paste0("V",1:20),
+       pvalues=our_pvalues_multitest ) %>% 
+  mutate(pvalues=formatC(pvalues,digits=3)) %>% 
+  mutate(ABreak=rep(c("A","B"),each=10)) %>%
+  kable() %>% 
+  kable_classic_2(full_width=F)
+  
+
+
+```
+
+How many of these gave a p-value less than 0.05
+
+```{r}
+#| label: multiple testing how many significant
+#| message: false
+
+
+sum(our_pvalues_multitest<=0.05)
+
+
+```
+
+
+# Importance of reporting effect size
+
+```{r}
+#| label: effectsize
+#| echo: fenced
+
+set.seed(414)
+Mice_group_A<-runif(10,1.05,1.1)
+
+Mice_group_B<-runif(10,1.1,1.15)
+
+wilcox.test(Mice_group_A,Mice_group_B)
+
+tibble(Values=Mice_group_A,
+       Group="A") %>% 
+  bind_rows(tibble(Values=Mice_group_B,
+                   Group="B")) %>% 
+  ggplot(aes(x=Group,y=Values))+
+  geom_boxplot()
+
+```
+
+
+
+# Chick Weight example
+
+```{r}
+#| label: chick weight
+#| echo: fenced
+
+
+head(ChickWeight)
+
+ChickWeight %>% 
+  ggplot(aes(x=Time,y=weight,
+             col=as.factor(Diet)))+
+  geom_point()+
+  geom_line(aes(group=Chick))
+
+
+  
+```
+
+Doesn't look super great let's change it to Diet
+
+```{r}
+#|label: chickwg2
+
+
+ChickWeight %>% 
+  ggplot(aes(x=Time,y=weight,
+             col=as.factor(Diet)))+
+  geom_point()+
+  geom_line(aes(group=Chick))+
+  labs(col="Diet")
+
+
+```
+
+
+What if we wanted to add the mean of the groups over time
+
+```{r}
+#| label: meangroup
+
+ChickWeight %>% 
+  ggplot(aes(x=Time,y=weight,
+             col=as.factor(Diet)))+
+  geom_point(alpha=0.2)+
+  geom_line(aes(group=Chick),alpha=0.2)+
+  stat_summary(fun = "mean",geom="line",
+               linewidth=1.5)+
+  stat_summary(fun = "mean",geom="point",
+               size=1.5)+
+  labs(col="Diet")
+```
+
+
+Just out of curiosity, interested in amount of observations per time point/diet
+
+```{r fig.height=6,fig.width=8}
+#| label: countcount
+
+ChickWeight %>% 
+  count(Diet,Time)
+
+ChickWeight %>% 
+  count(Diet,Time) %>% 
+  ggplot(aes(x=Time))+
+  geom_bar(aes(fill=as.character(Diet),
+               y=n),
+           position = "dodge",
+               stat = "identity")+
+  theme(legend.position = "bottom")
+
+```
+
+
+# Confounding
+
+
+We are interested in the association between the horsepower of the car and the weight of the car within this dataset (the "hp" and "wt" columns). Looking at the relationship between these two variables
+
+
+```{r}
+#| label: confounding example
+#| echo: fenced
+
+    head(mtcars)
+
+
+mtcars %>% 
+  ggplot(aes(x=hp,y=wt))+
+  geom_point()+
+  xlab("Horsepower")+
+  ylab("Weight (tons)")
+```
+
+
+And do we see a signifcant association
+
+```{r}
+#| label: assoc_noadju
+#| echo: fenced
+
+    summary(lm(wt~hp,data=mtcars))
+
+```
+
+
+It appears that the horsepower of the car is highly associated with the weight of the car (looking at the p-value above). Now let us say we adjusted for the number of cylinders the car has. Let's plot horsepower vs weight color coding by the number of cylinders.
+
+
+```{r}
+#| label: again
+#| echo: fenced
+
+mtcars %>% 
+  ggplot(aes(x=hp,y=wt,col=as.character(cyl)))+
+  geom_point()+
+  xlab("Horsepower")+
+  ylab("Weight (tons)")+
+  labs(col="cylinders")+
+  theme(legend.position = "bottom")
+```
+
+And if we now adjust for number of cylinders within our analysis:
+
+```{r}
+#| label: adjust
+#| echo: fenced
+
+
+    summary(lm(wt~hp+cyl,data=mtcars))
+
+```
+## More confounding 
+
+```{r}
+#| label: moreconfoun
+#| echo: fenced
+
+
+niter<-1000
+N<-1000
+set.seed(10301939)
+    betaY<-0
+    alphaX<-2
+    alphaY<-0
+    alphaZ<-2
+    tauX<-3
+    tauY<-1
+    TheEst4<-matrix(nrow=niter,ncol=3)
+    for(i in 1:niter){
+      U<-rnorm(N)
+      Z<-alphaZ*U+rnorm(N)
+      X<-alphaX*U+tauX*Z+rnorm(N)      
+      Y<-alphaY*U+betaY*X+tauY*Z+rnorm(N)      
+      E1<-coef(lm(Y~X))[2]
+      E2<-coef(lm(Y~X+Z))[2]
+      E3<-coef(lm(Y~X+Z+U))[2]
+      TheEst4[i,]<-c(E1,E2,E3)
+    }
+  
+colMeans(TheEst4)    
+    
+```
+
